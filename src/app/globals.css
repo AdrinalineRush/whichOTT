@@ -31,14 +31,3 @@ body {
   }
 }
 
-/* slot-machine slide for the cycling badge */
-@keyframes slotIn {
-  from {
-    opacity: 0;
-    transform: translateY(0.7em);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}

@@ -12,6 +12,8 @@ import {
 
 const CACHE_DAYS = 7; // re-pull TMDB availability after this many days
 
+export type FetchMethod = "verified" | "cache_hit" | "live_fetch" | "manual";
+
 export type ResolvedTitle = {
   id: string;
   slug: string;
@@ -20,9 +22,14 @@ export type ResolvedTitle = {
   year: number | null;
   language: string | null;
   poster_path: string | null;
+  backdrop_path: string | null;
+  overview: string | null;
+  vote_average: number;
+  genres: string[];
   providers: Providers;
   verified: boolean; // true = a human confirmed this (trust it)
   source: "manual" | "tmdb" | "user_report";
+  method: FetchMethod; // how THIS response was produced, for the admin audit log
 };
 
 function slugify(title: string, year: number | null): string {
@@ -65,7 +72,12 @@ async function upsertTitle(t: TmdbTitle) {
 async function resolveAvailability(
   titleId: string,
   tmdbId: number | null
-): Promise<{ providers: Providers; verified: boolean; source: ResolvedTitle["source"] }> {
+): Promise<{
+  providers: Providers;
+  verified: boolean;
+  source: ResolvedTitle["source"];
+  method: FetchMethod;
+}> {
   const db = supabaseAdmin();
 
   const { data: row } = await db
@@ -77,14 +89,24 @@ async function resolveAvailability(
 
   // 1. Verified human data always wins — return immediately.
   if (row?.verified) {
-    return { providers: row.providers as Providers, verified: true, source: row.source };
+    return {
+      providers: row.providers as Providers,
+      verified: true,
+      source: row.source,
+      method: "verified",
+    };
   }
 
   // 2. Fresh-enough cached TMDB data — reuse it.
   if (row && tmdbId) {
     const ageMs = Date.now() - new Date(row.updated_at).getTime();
     if (ageMs < CACHE_DAYS * 86_400_000) {
-      return { providers: row.providers as Providers, verified: false, source: row.source };
+      return {
+        providers: row.providers as Providers,
+        verified: false,
+        source: row.source,
+        method: "cache_hit",
+      };
     }
   }
 
@@ -101,14 +123,15 @@ async function resolveAvailability(
       },
       { onConflict: "title_id,region" }
     );
-    return { providers, verified: false, source: "tmdb" };
+    return { providers, verified: false, source: "tmdb", method: "live_fetch" };
   }
 
   // manual-only title with no availability yet
   return {
-    providers: { stream: [], ads: [], rent: [], buy: [] },
+    providers: { stream: [], ads: [], rent: [], buy: [], link: null },
     verified: false,
     source: "manual",
+    method: "manual",
   };
 }
 
@@ -132,8 +155,13 @@ export async function resolveByTmdb(t: TmdbTitle): Promise<ResolvedTitle> {
     year: t.year,
     language: t.language,
     poster_path: t.poster_path,
+    backdrop_path: t.backdrop_path,
+    overview: t.overview,
+    vote_average: t.vote_average,
+    genres: t.genres,
     providers: av.providers,
     verified: av.verified,
     source: av.source,
+    method: av.method,
   };
 }
